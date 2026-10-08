@@ -1,0 +1,4 @@
+// error: extern functions cannot take Point by value; pass a pointer instead
+struct Point { x: i32, y: i32, z: i32 }
+extern fn take(p: Point);
+fn main() {}

@@ -1,0 +1,4 @@
+// error: extern functions cannot return Point by value
+struct Point { x: i32, y: i32, z: i32 }
+extern fn make() -> Point;
+fn main() {}

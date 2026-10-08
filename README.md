@@ -28,7 +28,7 @@ fn main() {
 ## Design Principles
 
 - **C-like semantics**: Value types, pointers, and manual memory management. No runtime, garbage collector, exceptions, or hidden allocations.
-- **C ABI compatibility**: Call C functions, including libc functions, directly with `extern fn`. No name mangling.
+- **C ABI compatibility**: Call C functions, including libc functions, directly with `extern fn`. No name mangling. Structs and arrays cross the C boundary by pointer only (by-value aggregates in `extern fn` signatures are rejected until target ABI lowering is implemented).
 - **No implicit conversions**: All type conversions must be explicit using `as`. Only integer literals have their types determined by context.
 - **Optimization via LLVM**: Keep the frontend simple and use the same `-O2`/`-O3` optimization pipelines as Clang.
   Signed integer overflow is undefined behavior, as in C.

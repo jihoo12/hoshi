@@ -116,6 +116,18 @@ private:
     }
     f.retType = f.retRef ? resolveType(*f.retRef) : tc.voidTy();
 
+    // Aggregates cross the C boundary with target-specific ABI rules (register
+    // splitting, sret, byval) that codegen does not implement yet.
+    if (f.isExtern) {
+      for (auto &p : f.params)
+        if (p.var.type->isStruct() || p.var.type->isArray())
+          error(p.typeRef->loc, "extern functions cannot take " + p.var.type->str() +
+                                    " by value; pass a pointer instead");
+      if (f.retType->isStruct() || f.retType->isArray())
+        error(f.retRef->loc, "extern functions cannot return " + f.retType->str() +
+                                 " by value; return it through a pointer instead");
+    }
+
     if (f.name == "main" && !f.isExtern) {
       Type *i32 = tc.intTy(32, true);
       if (f.retType != i32 && !f.retType->isVoid())
