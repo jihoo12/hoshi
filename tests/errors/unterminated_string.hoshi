@@ -1,0 +1,2 @@
+// error: unterminated string literal
+fn main() { let s = "oops; }

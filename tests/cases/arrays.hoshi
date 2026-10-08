@@ -1,0 +1,29 @@
+// expect: 0 1 4 9 16
+// expect: total=30
+// expect: 3
+extern fn printf(fmt: *u8, ...) -> i32;
+
+fn sum(xs: *i32, n: i32) -> i32 {
+    var s = 0;
+    for i in 0..n {
+        s += xs[i];
+    }
+    return s;
+}
+
+fn main() {
+    var squares: [5]i32;
+    for i in 0..5 {
+        squares[i] = i * i;
+    }
+    for i in 0..5 {
+        printf("%d", squares[i]);
+        if i < 4 { printf(" "); }
+    }
+    printf("\n");
+    printf("total=%d\n", sum(&squares[0], 5));
+
+    var grid: [2][3]u8;
+    grid[1][2] = 3;
+    printf("%d\n", grid[1][2]);
+}

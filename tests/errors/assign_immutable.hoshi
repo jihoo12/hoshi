@@ -1,0 +1,2 @@
+// error: cannot assign to immutable variable 'x'
+fn main() { let x = 1; x = 2; }
