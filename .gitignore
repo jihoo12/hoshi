@@ -6,3 +6,4 @@ result-*
 *.ll
 /a.out
 compile_commands.json
+.cache/
