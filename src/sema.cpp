@@ -483,7 +483,9 @@ private:
       error(c.loc, "constant '" + c.name + "' depends on itself");
     c.state = ConstDecl::Resolving;
     Type *declared = c.typeRef ? resolveValueType(*c.typeRef, "a constant") : nullptr;
-    ConstValue v = evalConst(*c.init);
+    // Like `let x: T = init`, the declared type is the context for literals:
+    // `const HALF: f64 = 1 / 2;` is 0.5, not integer division.
+    ConstValue v = evalConst(*c.init, declared);
     if (auto ov = overriddenConsts.find(&c); ov != overriddenConsts.end()) {
       bool numeric = (v.kind == ConstValue::Int || v.kind == ConstValue::Float) &&
                      (ov->second.kind == ConstValue::Int || ov->second.kind == ConstValue::Float);
@@ -551,12 +553,29 @@ private:
     return ConstValue::ofInt(v, t);
   }
 
-  ConstValue evalConst(Expr &e) {
+  // An untyped number adopts a numeric context type, exactly as an untyped
+  // literal does during type checking.
+  ConstValue adopt(const ConstValue &v, Type *t, SourceLoc loc) {
+    if (!t || v.type)
+      return v;
+    if ((v.kind == ConstValue::Int && t->isNumeric()) ||
+        (v.kind == ConstValue::Float && t->isFloat()))
+      return convertConst(v, t, loc);
+    return v;
+  }
+
+  // Typed f32 results are rounded after every operation, as at run time.
+  static ConstValue floatResult(double v, Type *t) {
+    return ConstValue::ofFloat(t && t->bits == 32 ? double(float(v)) : v, t);
+  }
+
+  // `expected` is the type context, as in checkExpr.
+  ConstValue evalConst(Expr &e, Type *expected = nullptr) {
     switch (e.kind) {
     case ExprKind::IntLit:
-      return ConstValue::ofInt(i128(static_cast<IntLitExpr &>(e).value));
+      return adopt(ConstValue::ofInt(i128(static_cast<IntLitExpr &>(e).value)), expected, e.loc);
     case ExprKind::FloatLit:
-      return ConstValue::ofFloat(static_cast<FloatLitExpr &>(e).value);
+      return adopt(ConstValue::ofFloat(static_cast<FloatLitExpr &>(e).value), expected, e.loc);
     case ExprKind::BoolLit:
       return ConstValue::ofBool(static_cast<BoolLitExpr &>(e).value);
     case ExprKind::StringLit:
@@ -568,11 +587,15 @@ private:
         error(e.loc, "'" + id.name + "' is a variable, not a compile-time constant");
       if (!sym.constant)
         error(e.loc, "use of undeclared constant '" + id.name + "'");
-      return constValueOf(*sym.constant);
+      return adopt(constValueOf(*sym.constant), expected, e.loc);
     }
     case ExprKind::Unary: {
       auto &u = static_cast<UnaryExpr &>(e);
-      ConstValue v = evalConst(*u.operand);
+      // `-128` as i8: negate the literal before fitting it to the type.
+      if (u.op == UnaryOp::Neg && u.operand->kind == ExprKind::IntLit)
+        return adopt(ConstValue::ofInt(-i128(static_cast<IntLitExpr &>(*u.operand).value)),
+                     expected, u.loc);
+      ConstValue v = evalConst(*u.operand, u.op == UnaryOp::Not ? nullptr : expected);
       switch (u.op) {
       case UnaryOp::Neg:
         if (v.kind == ConstValue::Int) {
@@ -581,7 +604,7 @@ private:
           return checkedInt(-v.i, v.type, u.loc);
         }
         if (v.kind == ConstValue::Float)
-          return ConstValue::ofFloat(-v.f, v.type);
+          return floatResult(-v.f, v.type);
         break;
       case UnaryOp::Not:
         if (v.kind == ConstValue::Bool)
@@ -598,7 +621,7 @@ private:
                        "' in a constant expression");
     }
     case ExprKind::Binary:
-      return evalConstBinary(static_cast<BinaryExpr &>(e));
+      return evalConstBinary(static_cast<BinaryExpr &>(e), expected);
     case ExprKind::Cast: {
       auto &c = static_cast<CastExpr &>(e);
       ConstValue v = evalConst(*c.operand);
@@ -632,8 +655,11 @@ private:
     }
   }
 
-  ConstValue evalConstBinary(BinaryExpr &b) {
-    ConstValue l = evalConst(*b.lhs);
+  ConstValue evalConstBinary(BinaryExpr &b, Type *expected) {
+    bool isCmp = b.op == BinaryOp::Eq || b.op == BinaryOp::Ne || b.op == BinaryOp::Lt ||
+                 b.op == BinaryOp::Le || b.op == BinaryOp::Gt || b.op == BinaryOp::Ge;
+    bool isLogic = b.op == BinaryOp::And || b.op == BinaryOp::Or;
+    ConstValue l = evalConst(*b.lhs, isCmp || isLogic ? nullptr : expected);
     if (b.op == BinaryOp::And || b.op == BinaryOp::Or) {
       // Short-circuit like the runtime operator.
       if (l.kind != ConstValue::Bool)
@@ -645,14 +671,15 @@ private:
         error(b.rhs->loc, "operand of '" + std::string(binaryOpStr(b.op)) + "' must be bool");
       return r;
     }
-    ConstValue r = evalConst(*b.rhs);
+    // As in checkOperands: the right side gets the left side's type as context,
+    // and an untyped left side adopts the type of a typed right side.
+    ConstValue r = evalConst(*b.rhs, l.type ? l.type : isCmp ? nullptr : expected);
+    if (!l.type && r.type)
+      l = adopt(l, r.type, b.lhs->loc);
     auto invalid = [&]() -> ConstValue {
       error(b.loc, std::string("invalid operands to '") + binaryOpStr(b.op) + "': " +
                        constTypeName(l) + " and " + constTypeName(r));
     };
-    bool isCmp = b.op == BinaryOp::Eq || b.op == BinaryOp::Ne || b.op == BinaryOp::Lt ||
-                 b.op == BinaryOp::Le || b.op == BinaryOp::Gt || b.op == BinaryOp::Ge;
-
     if (l.kind == ConstValue::Str || r.kind == ConstValue::Str ||
         l.kind == ConstValue::Bool || r.kind == ConstValue::Bool) {
       if (l.kind != r.kind || (b.op != BinaryOp::Eq && b.op != BinaryOp::Ne))
@@ -683,11 +710,11 @@ private:
       if ((b.op == BinaryOp::Div || b.op == BinaryOp::Rem) && y == 0)
         error(b.loc, "division by zero in a constant expression");
       switch (b.op) {
-      case BinaryOp::Add: return ConstValue::ofFloat(x + y, t);
-      case BinaryOp::Sub: return ConstValue::ofFloat(x - y, t);
-      case BinaryOp::Mul: return ConstValue::ofFloat(x * y, t);
-      case BinaryOp::Div: return ConstValue::ofFloat(x / y, t);
-      case BinaryOp::Rem: return ConstValue::ofFloat(std::fmod(x, y), t);
+      case BinaryOp::Add: return floatResult(x + y, t);
+      case BinaryOp::Sub: return floatResult(x - y, t);
+      case BinaryOp::Mul: return floatResult(x * y, t);
+      case BinaryOp::Div: return floatResult(x / y, t);
+      case BinaryOp::Rem: return floatResult(std::fmod(x, y), t);
       case BinaryOp::Eq: return ConstValue::ofBool(x == y);
       case BinaryOp::Ne: return ConstValue::ofBool(x != y);
       case BinaryOp::Lt: return ConstValue::ofBool(x < y);

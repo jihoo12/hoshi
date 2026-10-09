@@ -1,0 +1,28 @@
+// expect: half 0.500000 0.500000
+// expect: f32 0.000000 0.000000
+// expect: min -128 -128
+// expect: mask 255 255
+// expect: third 0.333333 0.333333
+extern fn printf(fmt: *u8, ...) -> i32;
+
+// Constants must evaluate exactly like the same expression at run time.
+const HALF: f64 = 1 / 2;
+const BIG: f32 = 16777216.0;
+const LOST = (BIG + 1) - BIG;     // f32 cannot represent 16777217
+const MIN: i8 = -128;
+const MASK: u8 = ~0;
+const THIRD: f32 = 1 / 3;
+
+fn main() {
+    let half: f64 = 1 / 2;
+    let big: f32 = 16777216.0;
+    let lost = (big + 1) - big;
+    let min: i8 = -128;
+    let mask: u8 = ~0;
+    let third: f32 = 1 / 3;
+    printf("half %f %f\n", HALF, half);
+    printf("f32 %f %f\n", LOST, lost);
+    printf("min %d %d\n", MIN, min);
+    printf("mask %u %u\n", MASK, mask);
+    printf("third %f %f\n", THIRD, third);
+}
