@@ -1,0 +1,4 @@
+// error: constant 'A' depends on itself
+const A = B + 1;
+const B = A;
+fn main() { let x = A; }

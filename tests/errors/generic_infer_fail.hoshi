@@ -1,0 +1,4 @@
+// error: cannot infer type parameter 'T' of 'alloc'
+extern fn malloc(n: u64) -> *void;
+fn alloc[T](n: u64) -> *T { return malloc(n) as *T; }
+fn main() { let p = alloc(8); }

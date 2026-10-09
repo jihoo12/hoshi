@@ -4,6 +4,7 @@
 #include "types.h"
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,6 +17,52 @@ class Function;
 namespace hoshi {
 
 struct FuncDecl;
+struct ConstDecl;
+struct Expr;
+using ExprPtr = std::unique_ptr<Expr>;
+
+// ---------------------------------------------------------------------------
+// Compile-time values
+
+struct ConstValue {
+  enum Kind { Int, Float, Bool, Str } kind = Int;
+  __int128 i = 0;
+  double f = 0;
+  bool b = false;
+  std::string s;
+  Type *type = nullptr; // null: untyped, adopts its type from context
+
+  static ConstValue ofInt(__int128 v, Type *t = nullptr) {
+    ConstValue c;
+    c.kind = Int;
+    c.i = v;
+    c.type = t;
+    return c;
+  }
+  static ConstValue ofFloat(double v, Type *t = nullptr) {
+    ConstValue c;
+    c.kind = Float;
+    c.f = v;
+    c.type = t;
+    return c;
+  }
+  static ConstValue ofBool(bool v) {
+    ConstValue c;
+    c.kind = Bool;
+    c.b = v;
+    return c;
+  }
+  static ConstValue ofStr(std::string v) {
+    ConstValue c;
+    c.kind = Str;
+    c.s = std::move(v);
+    return c;
+  }
+  std::string str() const;
+};
+
+// Names bound to types inside a generic instantiation, e.g. T -> i32.
+using TypeEnv = std::map<std::string, Type *>;
 
 // ---------------------------------------------------------------------------
 // Type syntax (resolved to Type* by sema)
@@ -23,10 +70,16 @@ struct FuncDecl;
 struct TypeRef {
   enum Kind { Named, Pointer, Array } kind;
   SourceLoc loc;
-  std::string name;              // Named
-  std::unique_ptr<TypeRef> elem; // Pointer, Array
-  uint64_t count = 0;            // Array
+  std::string name;                           // Named
+  std::vector<std::unique_ptr<TypeRef>> args; // Named: generic arguments
+  std::unique_ptr<TypeRef> elem;              // Pointer, Array
+  ExprPtr count;                              // Array: constant expression
   Type *resolved = nullptr;
+};
+
+struct TypeParam {
+  std::string name;
+  SourceLoc loc;
 };
 
 // ---------------------------------------------------------------------------
@@ -67,7 +120,6 @@ struct Expr {
   Expr(ExprKind kind, SourceLoc loc) : kind(kind), loc(loc) {}
   virtual ~Expr() = default;
 };
-using ExprPtr = std::unique_ptr<Expr>;
 
 struct IntLitExpr : Expr {
   uint64_t value;
@@ -100,7 +152,8 @@ struct StringLitExpr : Expr {
 
 struct IdentExpr : Expr {
   std::string name;
-  VarSym *var = nullptr; // set by sema
+  VarSym *var = nullptr;       // set by sema for variables
+  ConstDecl *constDecl = nullptr; // set by sema for constants
   IdentExpr(SourceLoc loc, std::string name)
       : Expr(ExprKind::Ident, loc), name(std::move(name)) {}
 };
@@ -122,8 +175,9 @@ struct BinaryExpr : Expr {
 
 struct CallExpr : Expr {
   std::string callee;
+  std::vector<std::unique_ptr<TypeRef>> typeArgs; // explicit: f[i32](...)
   std::vector<ExprPtr> args;
-  FuncDecl *fn = nullptr; // set by sema
+  FuncDecl *fn = nullptr; // set by sema (the instance for generic calls)
   CallExpr(SourceLoc loc, std::string callee, std::vector<ExprPtr> args)
       : Expr(ExprKind::Call, loc), callee(std::move(callee)),
         args(std::move(args)) {}
@@ -132,7 +186,7 @@ struct CallExpr : Expr {
 struct MemberExpr : Expr {
   ExprPtr base;
   std::string field;
-  unsigned fieldIndex = 0;  // set by sema
+  unsigned fieldIndex = 0;     // set by sema
   bool throughPointer = false; // set by sema: base is *Struct
   MemberExpr(SourceLoc loc, ExprPtr base, std::string field)
       : Expr(ExprKind::Member, loc), base(std::move(base)),
@@ -169,6 +223,7 @@ struct FieldInit {
 
 struct StructLitExpr : Expr {
   std::string name;
+  std::vector<std::unique_ptr<TypeRef>> typeArgs; // Pair[i32] { ... }
   std::vector<FieldInit> fields;
   StructLitExpr(SourceLoc loc, std::string name, std::vector<FieldInit> fields)
       : Expr(ExprKind::StructLit, loc), name(std::move(name)),
@@ -182,10 +237,24 @@ struct ArrayLitExpr : Expr {
 };
 
 // ---------------------------------------------------------------------------
+// Constants
+
+struct ConstDecl {
+  std::string name;
+  SourceLoc loc;
+  std::unique_ptr<TypeRef> typeRef; // optional
+  ExprPtr init;                     // null for predefined constants
+  // Set by sema.
+  enum State { Unresolved, Resolving, Done } state = Unresolved;
+  ConstValue value;
+};
+
+// ---------------------------------------------------------------------------
 // Statements
 
 enum class StmtKind {
-  Block, Let, Expr, Assign, If, While, For, Return, Break, Continue, Defer,
+  Block, Let, Const, Expr, Assign, If, When, While, For, Return, Break,
+  Continue, Defer,
 };
 
 struct Stmt {
@@ -208,6 +277,12 @@ struct LetStmt : Stmt {
   LetStmt(SourceLoc loc) : Stmt(StmtKind::Let, loc) {}
 };
 
+struct ConstStmt : Stmt {
+  std::unique_ptr<ConstDecl> decl;
+  ConstStmt(SourceLoc loc, std::unique_ptr<ConstDecl> decl)
+      : Stmt(StmtKind::Const, loc), decl(std::move(decl)) {}
+};
+
 struct ExprStmt : Stmt {
   ExprPtr expr;
   ExprStmt(SourceLoc loc, ExprPtr expr)
@@ -227,6 +302,15 @@ struct IfStmt : Stmt {
   std::unique_ptr<BlockStmt> thenBlock;
   StmtPtr elseStmt; // BlockStmt or IfStmt, optional
   IfStmt(SourceLoc loc) : Stmt(StmtKind::If, loc) {}
+};
+
+// Compile-time `if`: only the chosen branch is type checked and compiled.
+struct WhenStmt : Stmt {
+  ExprPtr cond;
+  std::unique_ptr<BlockStmt> thenBlock;
+  StmtPtr elseStmt;        // BlockStmt or WhenStmt, optional
+  Stmt *chosen = nullptr;  // set by sema; null if no branch applies
+  WhenStmt(SourceLoc loc) : Stmt(StmtKind::When, loc) {}
 };
 
 struct WhileStmt : Stmt {
@@ -274,13 +358,21 @@ struct Param {
 struct FuncDecl {
   std::string name;
   SourceLoc loc;
+  std::vector<TypeParam> typeParams; // non-empty: a generic template
   std::vector<Param> params;
   std::unique_ptr<TypeRef> retRef; // null means void
   bool isExtern = false;
   bool isVariadic = false;
   std::unique_ptr<BlockStmt> body; // null for extern
-  Type *retType = nullptr;         // set by sema
-  llvm::Function *llvmFn = nullptr; // set by codegen
+  // Set by sema.
+  Type *retType = nullptr;
+  TypeEnv typeEnv;              // generic instances: T -> concrete type
+  bool isInstance = false;      // a monomorphized copy of a generic template
+  SourceLoc requestLoc;         // instances: where it was first requested
+  // Set by codegen.
+  llvm::Function *llvmFn = nullptr;
+
+  bool isGeneric() const { return !typeParams.empty(); }
 };
 
 struct Field {
@@ -293,8 +385,14 @@ struct Field {
 struct StructDecl {
   std::string name;
   SourceLoc loc;
+  std::vector<TypeParam> typeParams; // non-empty: a generic template
   std::vector<Field> fields;
-  Type *type = nullptr; // set by sema
+  // Set by sema.
+  Type *type = nullptr;
+  StructDecl *templ = nullptr;   // instances: the generic template
+  std::vector<Type *> typeArgs;  // instances: the arguments, in order
+
+  bool isGeneric() const { return !typeParams.empty(); }
 
   int fieldIndex(const std::string &n) const {
     for (size_t i = 0; i < fields.size(); ++i)
@@ -304,10 +402,32 @@ struct StructDecl {
   }
 };
 
+struct WhenDecl;
+
 struct Module {
   std::vector<std::unique_ptr<StructDecl>> structs;
   std::vector<std::unique_ptr<FuncDecl>> funcs;
+  std::vector<std::unique_ptr<ConstDecl>> consts;
+  std::vector<std::unique_ptr<WhenDecl>> whens; // expanded away by sema
+  // Filled in by sema: predefined constants (OS, ARCH, -D ...) and
+  // monomorphized generics.
+  std::vector<std::unique_ptr<ConstDecl>> builtinConsts;
+  std::vector<std::unique_ptr<StructDecl>> structInstances;
+  std::vector<std::unique_ptr<FuncDecl>> funcInstances;
 };
+
+// Top-level compile-time `if` selecting declarations.
+struct WhenDecl {
+  SourceLoc loc;
+  ExprPtr cond;
+  Module thenItems;
+  Module elseItems; // `else when` is a single nested WhenDecl
+};
+
+// Deep copies of syntax, without any sema annotations (for generics).
+std::unique_ptr<TypeRef> cloneTypeRef(const TypeRef &t);
+ExprPtr cloneExpr(const Expr &e);
+StmtPtr cloneStmt(const Stmt &s);
 
 void dumpModule(const Module &m);
 

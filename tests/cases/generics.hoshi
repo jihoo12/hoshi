@@ -1,0 +1,122 @@
+// expect: 7 9 2.500000 c
+// expect: swapped 2 1
+// expect: pair 1 2.500000
+// expect: sum 10 sum 6.000000
+// expect: first 3
+// expect: 4 3 2 1
+// expect: len 3 total 60
+extern fn printf(fmt: *u8, ...) -> i32;
+extern fn malloc(size: u64) -> *void;
+extern fn free(p: *void);
+
+fn max[T](a: T, b: T) -> T {
+    if a > b { return a; }
+    return b;
+}
+
+fn swap[T](a: *T, b: *T) {
+    let t = *a;
+    *a = *b;
+    *b = t;
+}
+
+struct Pair[A, B] {
+    first: A,
+    second: B,
+}
+
+fn make_pair[A, B](a: A, b: B) -> Pair[A, B] {
+    return Pair[A, B] { first: a, second: b };
+}
+
+fn first_of[A, B](p: *Pair[A, B]) -> A {
+    return p.first;
+}
+
+fn sum[T](xs: *T, n: u64) -> T {
+    var total: T;
+    for i in 0..n {
+        total += xs[i];
+    }
+    return total;
+}
+
+fn alloc[T](n: u64) -> *T {
+    return malloc(n * sizeof(T)) as *T;
+}
+
+// A generic singly linked list.
+struct Node[T] {
+    value: T,
+    next: *Node[T],
+}
+
+fn push[T](head: *Node[T], value: T) -> *Node[T] {
+    let n = alloc[Node[T]](1);
+    n.value = value;
+    n.next = head;
+    return n;
+}
+
+struct Vec[T] {
+    data: *T,
+    len: u64,
+    cap: u64,
+}
+
+fn vec_push[T](v: *Vec[T], value: T) {
+    if v.len == v.cap {
+        let new_cap = if_zero(v.cap, 4, v.cap * 2);
+        let data = alloc[T](new_cap);
+        for i in 0..v.len { data[i] = v.data[i]; }
+        if v.data != null { free(v.data as *void); }
+        v.data = data;
+        v.cap = new_cap;
+    }
+    v.data[v.len] = value;
+    v.len += 1;
+}
+
+fn if_zero(x: u64, a: u64, b: u64) -> u64 {
+    if x == 0 { return a; }
+    return b;
+}
+
+fn main() {
+    let x: i64 = 7;
+    printf("%d %lld %f %c\n", max(3, 7), max(x, 9), max(2.5, 1.0), max('a', 'c'));
+
+    var a = 1;
+    var b = 2;
+    swap(&a, &b);
+    printf("swapped %d %d\n", a, b);
+
+    let p = make_pair(1, 2.5);
+    printf("pair %d %f\n", p.first, p.second);
+
+    var ints = [1, 2, 3, 4];
+    var floats: [3]f64 = [1.0, 2.0, 3.0];
+    printf("sum %d sum %f\n", sum(&ints[0], 4), sum(&floats[0], 3));
+
+    var q = make_pair(3, true);
+    printf("first %d\n", first_of(&q));
+
+    var list: *Node[i32] = null;
+    for i in 1..5 { list = push(list, i); }
+    var it = list;
+    while it != null {
+        printf("%d", it.value);
+        if it.next != null { printf(" "); }
+        let dead = it;
+        it = it.next;
+        free(dead as *void);
+    }
+    printf("\n");
+
+    var v = Vec[i64] { data: null };
+    defer free(v.data as *void);
+    vec_push(&v, 10);
+    vec_push(&v, 20);
+    vec_push(&v, 30);
+    printf("len %llu total %lld\n", v.len, sum(v.data, v.len));
+}

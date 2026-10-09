@@ -7,6 +7,8 @@ tests/cases/*.hoshi   compiled at -O0 and -O2, run, and checked against
 tests/errors/*.hoshi  must fail to compile with a message containing the
                       text of each `// error: <text>` comment.
 
+Both kinds accept `// flags: <args>` for extra compiler arguments.
+
 usage: run.py <path-to-hoshic> [filter]
 """
 
@@ -28,6 +30,10 @@ def directives(path, key):
     return out
 
 
+def flags(path):
+    return [f for line in directives(path, "flags") for f in line.split()]
+
+
 def run_case(hoshic, path, tmp):
     expect = directives(path, "expect")
     exit_lines = directives(path, "exit")
@@ -36,7 +42,7 @@ def run_case(hoshic, path, tmp):
 
     for opt in ("-O0", "-O2"):
         exe = pathlib.Path(tmp) / f"{path.stem}{opt}"
-        c = subprocess.run([hoshic, opt, str(path), "-o", str(exe)],
+        c = subprocess.run([hoshic, opt, *flags(path), str(path), "-o", str(exe)],
                            capture_output=True, text=True)
         if c.returncode != 0:
             return f"[{opt}] compile failed:\n{c.stderr}"
@@ -52,7 +58,7 @@ def run_error(hoshic, path, tmp):
     wants = directives(path, "error")
     if not wants:
         return "missing // error: directive"
-    c = subprocess.run([hoshic, str(path), "-o", str(pathlib.Path(tmp) / path.stem)],
+    c = subprocess.run([hoshic, *flags(path), str(path), "-o", str(pathlib.Path(tmp) / path.stem)],
                        capture_output=True, text=True)
     if c.returncode == 0:
         return "compiled successfully but an error was expected"

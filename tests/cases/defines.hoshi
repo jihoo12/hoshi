@@ -1,0 +1,24 @@
+// flags: -D LEVEL=5 -DNAME=prod -DVERBOSE -DRATIO=0.5
+// expect: level 5
+// expect: name prod
+// expect: verbose
+// expect: ratio 0.500000
+// expect: buffer 5
+extern fn printf(fmt: *u8, ...) -> i32;
+
+// Declared values are defaults; -D replaces them.
+const LEVEL = 1;
+const VERBOSE = false;
+const NAME = "dev";
+const RATIO: f64 = 1.0;
+
+fn main() {
+    printf("level %d\n", LEVEL);
+    printf("name %s\n", NAME);
+    when VERBOSE {
+        printf("verbose\n");
+    }
+    printf("ratio %f\n", RATIO);
+    var buf: [LEVEL]u8;
+    printf("buffer %llu\n", sizeof([LEVEL]u8));
+}

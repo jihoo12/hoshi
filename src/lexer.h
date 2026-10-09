@@ -19,7 +19,7 @@ enum class Tok {
   // Keywords
   KwFn, KwLet, KwVar, KwIf, KwElse, KwWhile, KwFor, KwIn, KwReturn, KwBreak,
   KwContinue, KwDefer, KwStruct, KwExtern, KwAs, KwTrue, KwFalse, KwNull,
-  KwSizeof,
+  KwSizeof, KwConst, KwWhen,
 
   // Punctuation
   LParen, RParen, LBrace, RBrace, LBracket, RBracket,

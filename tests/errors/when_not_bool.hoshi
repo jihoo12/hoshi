@@ -1,0 +1,2 @@
+// error: 'when' condition must be a compile-time bool
+fn main() { when 1 { } }

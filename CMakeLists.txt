@@ -18,6 +18,7 @@ add_executable(hoshic
   src/lexer.cpp
   src/parser.cpp
   src/ast_dump.cpp
+  src/ast_clone.cpp
   src/types.cpp
   src/sema.cpp
   src/codegen.cpp

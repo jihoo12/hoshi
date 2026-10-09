@@ -1,0 +1,4 @@
+// error: invalid operands to '+': bool and bool
+// error: in instantiation of 'add[bool]' requested here
+fn add[T](a: T, b: T) -> T { return a + b; }
+fn main() { add(true, false); }

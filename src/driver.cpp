@@ -21,7 +21,9 @@
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/TargetParser/Host.h>
 
+#include <cctype>
 #include <cstdlib>
+#include <map>
 #include <memory>
 
 namespace hoshi {
@@ -131,6 +133,50 @@ int link(const std::string &object, const Options &opts, const std::string &outp
   return 0;
 }
 
+std::string osName(const llvm::Triple &t) {
+  switch (t.getOS()) {
+  case llvm::Triple::Linux: return "linux";
+  case llvm::Triple::Darwin:
+  case llvm::Triple::MacOSX: return "macos";
+  case llvm::Triple::Win32: return "windows";
+  case llvm::Triple::FreeBSD: return "freebsd";
+  default: return t.getOSName().str();
+  }
+}
+
+// `-D NAME=VALUE`: true/false become bools, numbers become untyped numeric
+// constants, anything else a string. A bare `-D NAME` means true.
+ConstValue parseDefine(const std::string &text) {
+  if (text == "true" || text == "false")
+    return ConstValue::ofBool(text == "true");
+  llvm::StringRef s(text);
+  bool neg = s.consume_front("-");
+  uint64_t u;
+  if (!s.getAsInteger(0, u))
+    return ConstValue::ofInt(neg ? -__int128(u) : __int128(u));
+  double d;
+  if (!llvm::StringRef(text).getAsDouble(d))
+    return ConstValue::ofFloat(d);
+  return ConstValue::ofStr(text);
+}
+
+int predefinedConstants(const Options &opts, std::map<std::string, ConstValue> &out,
+                        std::map<std::string, ConstValue> &overrides) {
+  llvm::Triple triple(llvm::sys::getDefaultTargetTriple());
+  out["OS"] = ConstValue::ofStr(osName(triple));
+  out["ARCH"] = ConstValue::ofStr(triple.getArchName().str());
+  out["OPT_LEVEL"] = ConstValue::ofInt(opts.optLevel);
+  for (auto &[name, value] : opts.defines) {
+    bool valid = !name.empty() && (std::isalpha((unsigned char)name[0]) || name[0] == '_');
+    for (char c : name)
+      valid = valid && (std::isalnum((unsigned char)c) || c == '_');
+    if (!valid)
+      return fail("invalid constant name '" + name + "' in -D");
+    overrides[name] = value.empty() ? ConstValue::ofBool(true) : parseDefine(value);
+  }
+  return 0;
+}
+
 std::string defaultOutput(const Options &opts) {
   llvm::SmallString<128> path(llvm::sys::path::filename(opts.input));
   switch (opts.emit) {
@@ -154,6 +200,10 @@ int compile(const Options &opts) {
   SourceFile file{opts.input, (*buf)->getBuffer().str()};
   std::string output = opts.output.empty() ? defaultOutput(opts) : opts.output;
 
+  std::map<std::string, ConstValue> predefined, overrides;
+  if (int rc = predefinedConstants(opts, predefined, overrides))
+    return rc;
+
   hoshi::Module ast;
   TypeContext types;
   try {
@@ -162,7 +212,7 @@ int compile(const Options &opts) {
       dumpModule(ast);
       return 0;
     }
-    analyze(ast, types);
+    analyze(ast, types, predefined, overrides);
   } catch (const CompileError &e) {
     printError(file, e);
     return 1;
