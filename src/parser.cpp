@@ -10,15 +10,7 @@ public:
 
   Module parseModule() {
     Module m;
-    while (!at(Tok::Eof)) {
-      if (at(Tok::KwStruct))
-        m.structs.push_back(parseStruct());
-      else if (at(Tok::KwFn) || at(Tok::KwExtern))
-        m.funcs.push_back(parseFunc());
-      else
-        error(cur().loc, std::string("expected 'fn', 'extern' or 'struct', found ") +
-                             tokName(cur().kind));
-    }
+    parseItems(m, Tok::Eof);
     return m;
   }
 
@@ -75,10 +67,89 @@ private:
 
   // ---- Declarations -------------------------------------------------------
 
+  // Top-level items up to (not including) `end`.
+  void parseItems(Module &m, Tok end) {
+    while (!at(end)) {
+      if (at(Tok::KwStruct))
+        m.structs.push_back(parseStruct());
+      else if (at(Tok::KwFn) || at(Tok::KwExtern))
+        m.funcs.push_back(parseFunc());
+      else if (at(Tok::KwConst))
+        m.consts.push_back(parseConst());
+      else if (at(Tok::KwWhen))
+        m.whens.push_back(parseWhenDecl());
+      else
+        error(cur().loc, std::string("expected 'fn', 'extern', 'struct', 'const' or "
+                                     "'when', found ") +
+                             tokName(cur().kind));
+    }
+  }
+
+  std::unique_ptr<WhenDecl> parseWhenDecl() {
+    auto w = std::make_unique<WhenDecl>();
+    w->loc = expect(Tok::KwWhen).loc;
+    {
+      StructLitGuard g(*this, true);
+      w->cond = parseExpr();
+    }
+    expect(Tok::LBrace, "after when condition");
+    parseItems(w->thenItems, Tok::RBrace);
+    expect(Tok::RBrace, "to close when block");
+    if (accept(Tok::KwElse)) {
+      if (at(Tok::KwWhen)) {
+        w->elseItems.whens.push_back(parseWhenDecl());
+      } else {
+        expect(Tok::LBrace, "after else");
+        parseItems(w->elseItems, Tok::RBrace);
+        expect(Tok::RBrace, "to close else block");
+      }
+    }
+    return w;
+  }
+
+  std::unique_ptr<ConstDecl> parseConst() {
+    auto c = std::make_unique<ConstDecl>();
+    expect(Tok::KwConst);
+    c->loc = cur().loc;
+    c->name = expectIdent("constant name");
+    if (accept(Tok::Colon))
+      c->typeRef = parseType();
+    expect(Tok::Eq, "after constant name (constants need a value)");
+    c->init = parseExpr();
+    expect(Tok::Semi, "after constant declaration");
+    return c;
+  }
+
+  // Optional `[T, U]` after a function or struct name.
+  std::vector<TypeParam> parseTypeParams() {
+    std::vector<TypeParam> params;
+    if (!accept(Tok::LBracket))
+      return params;
+    do {
+      TypeParam p;
+      p.loc = cur().loc;
+      p.name = expectIdent("type parameter name");
+      params.push_back(std::move(p));
+    } while (accept(Tok::Comma) && !at(Tok::RBracket));
+    expect(Tok::RBracket, "to close type parameter list");
+    return params;
+  }
+
+  std::vector<std::unique_ptr<TypeRef>> parseTypeArgs() {
+    std::vector<std::unique_ptr<TypeRef>> args;
+    expect(Tok::LBracket);
+    do {
+      args.push_back(parseType());
+    } while (accept(Tok::Comma) && !at(Tok::RBracket));
+    expect(Tok::RBracket, "to close type argument list");
+    return args;
+  }
+
   std::unique_ptr<StructDecl> parseStruct() {
     auto s = std::make_unique<StructDecl>();
     s->loc = expect(Tok::KwStruct).loc;
     s->name = expectIdent("struct name");
+    s->typeParams = parseTypeParams();
     expect(Tok::LBrace, "after struct name");
     while (!at(Tok::RBrace)) {
       Field f;
@@ -99,6 +170,9 @@ private:
     f->isExtern = accept(Tok::KwExtern);
     f->loc = expect(Tok::KwFn).loc;
     f->name = expectIdent("function name");
+    f->typeParams = parseTypeParams();
+    if (f->isExtern && f->isGeneric())
+      error(f->typeParams[0].loc, "extern functions cannot be generic");
     expect(Tok::LParen, "after function name");
     while (!at(Tok::RParen)) {
       if (at(Tok::Ellipsis)) {
@@ -135,13 +209,17 @@ private:
       t->elem = parseType();
     } else if (accept(Tok::LBracket)) {
       t->kind = TypeRef::Array;
-      Token n = expect(Tok::IntLit, "for array length");
-      t->count = n.intVal;
+      {
+        StructLitGuard g(*this, false);
+        t->count = parseExpr(); // any constant expression
+      }
       expect(Tok::RBracket, "after array length");
       t->elem = parseType();
     } else {
       t->kind = TypeRef::Named;
       t->name = expectIdent("type");
+      if (at(Tok::LBracket))
+        t->args = parseTypeArgs();
     }
     return t;
   }
@@ -176,8 +254,12 @@ private:
       expect(Tok::Semi, "after variable declaration");
       return s;
     }
+    case Tok::KwConst:
+      return std::make_unique<ConstStmt>(loc, parseConst());
     case Tok::KwIf:
       return parseIf();
+    case Tok::KwWhen:
+      return parseWhenStmt();
     case Tok::KwWhile: {
       next();
       auto s = std::make_unique<WhileStmt>(loc);
@@ -238,6 +320,18 @@ private:
     s->thenBlock = parseBlock();
     if (accept(Tok::KwElse))
       s->elseStmt = at(Tok::KwIf) ? parseIf() : parseBlock();
+    return s;
+  }
+
+  StmtPtr parseWhenStmt() {
+    auto s = std::make_unique<WhenStmt>(expect(Tok::KwWhen).loc);
+    {
+      StructLitGuard g(*this, true);
+      s->cond = parseExpr();
+    }
+    s->thenBlock = parseBlock();
+    if (accept(Tok::KwElse))
+      s->elseStmt = at(Tok::KwWhen) ? parseWhenStmt() : parseBlock();
     return s;
   }
 
@@ -427,15 +521,39 @@ private:
     }
     case Tok::Ident: {
       next();
-      if (at(Tok::LParen))
-        return parseCall(t);
-      if (at(Tok::LBrace) && !noStructLit)
-        return parseStructLit(t);
+      std::vector<std::unique_ptr<TypeRef>> typeArgs;
+      if (at(Tok::LBracket))
+        typeArgs = tryParseGenericArgs();
+      if (at(Tok::LParen)) {
+        auto call = parseCall(t);
+        static_cast<CallExpr &>(*call).typeArgs = std::move(typeArgs);
+        return call;
+      }
+      if (at(Tok::LBrace) && !noStructLit) {
+        auto lit = parseStructLit(t);
+        static_cast<StructLitExpr &>(*lit).typeArgs = std::move(typeArgs);
+        return lit;
+      }
       return std::make_unique<IdentExpr>(t.loc, t.text);
     }
     default:
       error(t.loc, std::string("expected expression, found ") + tokName(t.kind));
     }
+  }
+
+  // After an identifier, `[` starts either an index (`xs[i]`) or generic
+  // arguments (`max[i64](a, b)`, `Pair[i32] { ... }`). Try the generic reading
+  // and keep it only when a call or struct literal follows; otherwise rewind.
+  std::vector<std::unique_ptr<TypeRef>> tryParseGenericArgs() {
+    size_t saved = pos;
+    try {
+      auto args = parseTypeArgs();
+      if (at(Tok::LParen) || (at(Tok::LBrace) && !noStructLit))
+        return args;
+    } catch (const CompileError &) {
+    }
+    pos = saved;
+    return {};
   }
 
   ExprPtr parseCall(const Token &name) {

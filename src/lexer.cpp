@@ -34,6 +34,8 @@ const char *tokName(Tok t) {
   case Tok::KwFalse: return "'false'";
   case Tok::KwNull: return "'null'";
   case Tok::KwSizeof: return "'sizeof'";
+  case Tok::KwConst: return "'const'";
+  case Tok::KwWhen: return "'when'";
   case Tok::LParen: return "'('";
   case Tok::RParen: return "')'";
   case Tok::LBrace: return "'{'";
@@ -95,6 +97,7 @@ const std::unordered_map<std::string, Tok> keywords = {
     {"as", Tok::KwAs},         {"true", Tok::KwTrue},
     {"false", Tok::KwFalse},   {"null", Tok::KwNull},
     {"sizeof", Tok::KwSizeof},
+    {"const", Tok::KwConst},   {"when", Tok::KwWhen},
 };
 
 class Lexer {

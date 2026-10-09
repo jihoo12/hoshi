@@ -17,6 +17,7 @@ void usage() {
       "  --emit-llvm     emit LLVM IR (to stdout unless -o is given)\n"
       "  --dump-ast      print the parsed syntax tree\n"
       "  --march=native  optimize for the host CPU\n"
+      "  -D NAME[=VALUE] define a compile-time constant (default value: true)\n"
       "  -l<lib> -L<dir> passed to the linker\n"
       "  --version       print version information\n"
       "  -h, --help      show this help");
@@ -52,6 +53,18 @@ int main(int argc, char **argv) {
       opts.emit = hoshi::EmitKind::AST;
     } else if (a == "--march=native") {
       opts.nativeCpu = true;
+    } else if (a.rfind("-D", 0) == 0) {
+      std::string def = a.substr(2);
+      if (def.empty()) {
+        if (++i >= argc) {
+          std::fputs("hoshic: error: -D needs an argument\n", stderr);
+          return 1;
+        }
+        def = argv[i];
+      }
+      size_t eq = def.find('=');
+      opts.defines.emplace_back(def.substr(0, eq),
+                                eq == std::string::npos ? "" : def.substr(eq + 1));
     } else if (a.rfind("-l", 0) == 0 || a.rfind("-L", 0) == 0) {
       opts.linkArgs.push_back(a);
     } else if (!a.empty() && a[0] == '-') {

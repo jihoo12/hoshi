@@ -1,0 +1,3 @@
+// error: function 'f' is not generic
+fn f(x: i32) {}
+fn main() { f[i32](1); }

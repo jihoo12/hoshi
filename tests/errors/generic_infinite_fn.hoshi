@@ -1,0 +1,3 @@
+// error: generic instantiation of 'f' is nested too deeply
+fn f[T](x: T) { f[*T](null); }
+fn main() { f(1); }

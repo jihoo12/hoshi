@@ -19,18 +19,32 @@ public:
       : mod(mod), ctx(mod.getContext()), b(ctx), dl(mod.getDataLayout()) {}
 
   void run(Module &m) {
-    // Create all struct types first so fields can refer to any of them.
+    // Generic templates produce no code; their instances do.
+    std::vector<StructDecl *> structDecls;
     for (auto &s : m.structs)
-      structTys[s.get()] = llvm::StructType::create(ctx, "struct." + s->name);
-    for (auto &s : m.structs) {
+      if (!s->isGeneric())
+        structDecls.push_back(s.get());
+    for (auto &s : m.structInstances)
+      structDecls.push_back(s.get());
+    std::vector<FuncDecl *> funcDecls;
+    for (auto &f : m.funcs)
+      if (!f->isGeneric())
+        funcDecls.push_back(f.get());
+    for (auto &f : m.funcInstances)
+      funcDecls.push_back(f.get());
+
+    // Create all struct types first so fields can refer to any of them.
+    for (StructDecl *s : structDecls)
+      structTys[s] = llvm::StructType::create(ctx, "struct." + s->name);
+    for (StructDecl *s : structDecls) {
       std::vector<llvm::Type *> fields;
       for (auto &f : s->fields)
         fields.push_back(llvmType(f.type));
-      structTys[s.get()]->setBody(fields);
+      structTys[s]->setBody(fields);
     }
-    for (auto &f : m.funcs)
+    for (FuncDecl *f : funcDecls)
       declareFunc(*f);
-    for (auto &f : m.funcs)
+    for (FuncDecl *f : funcDecls)
       if (f->body)
         genFunc(*f);
   }
@@ -80,7 +94,11 @@ private:
     // A `fn main()` with no return type still returns 0 to the C runtime.
     llvm::Type *ret = isVoidMain(f) ? b.getInt32Ty() : llvmType(f.retType);
     auto *fty = llvm::FunctionType::get(ret, params, f.isVariadic);
-    auto *fn = llvm::Function::Create(fty, llvm::Function::ExternalLinkage, f.name, mod);
+    // Generic instances are private to this module, so unused or fully
+    // inlined copies disappear.
+    auto linkage = f.isInstance ? llvm::Function::InternalLinkage
+                                : llvm::Function::ExternalLinkage;
+    auto *fn = llvm::Function::Create(fty, linkage, f.name, mod);
     fn->addFnAttr(llvm::Attribute::NoUnwind); // Hoshi has no exceptions
     for (size_t i = 0; i < f.params.size(); ++i)
       fn->getArg(i)->setName(f.params[i].var.name);
@@ -163,6 +181,12 @@ private:
       b.CreateStore(init, l.var.addr);
       return;
     }
+    case StmtKind::Const:
+      return; // uses are folded to their values
+    case StmtKind::When:
+      if (Stmt *chosen = static_cast<WhenStmt &>(s).chosen)
+        genStmt(*chosen);
+      return;
     case StmtKind::Expr:
       genExpr(*static_cast<ExprStmt &>(s).expr);
       return;
@@ -308,6 +332,8 @@ private:
       return b.CreateGlobalString(static_cast<StringLitExpr &>(e).value, ".str");
     case ExprKind::Ident: {
       auto &id = static_cast<IdentExpr &>(e);
+      if (id.constDecl)
+        return genConst(id.constDecl->value, e.type);
       return b.CreateLoad(llvmType(e.type), id.var->addr, id.name);
     }
     case ExprKind::Unary:
@@ -348,6 +374,23 @@ private:
         agg = b.CreateInsertValue(agg, genExpr(*a.elems[i]), i);
       return agg;
     }
+    }
+    return nullptr;
+  }
+
+  // A compile-time constant materialized at the type sema chose for this use.
+  llvm::Value *genConst(const ConstValue &v, Type *t) {
+    switch (v.kind) {
+    case ConstValue::Int:
+      if (t->isFloat())
+        return llvm::ConstantFP::get(llvmType(t), double(v.i));
+      return llvm::ConstantInt::get(llvmType(t), uint64_t(v.i), t->isSigned);
+    case ConstValue::Float:
+      return llvm::ConstantFP::get(llvmType(t), v.f);
+    case ConstValue::Bool:
+      return b.getInt1(v.b);
+    case ConstValue::Str:
+      return b.CreateGlobalString(v.s, ".str");
     }
     return nullptr;
   }

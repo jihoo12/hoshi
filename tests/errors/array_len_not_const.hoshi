@@ -1,0 +1,2 @@
+// error: array length must be a compile-time integer
+fn main() { var a: [1.5]u8; }

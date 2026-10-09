@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace hoshi {
@@ -14,6 +15,8 @@ struct Options {
   unsigned optLevel = 0;
   bool nativeCpu = false;
   std::vector<std::string> linkArgs; // passed through to the linker (-l, -L)
+  // -D NAME[=VALUE]: predefined compile-time constants.
+  std::vector<std::pair<std::string, std::string>> defines;
 };
 
 // Returns the process exit code.

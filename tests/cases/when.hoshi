@@ -1,0 +1,42 @@
+// expect: platform ok
+// expect: arch ok
+// expect: debug build
+// expect: level ok
+// expect: answer 42
+extern fn printf(fmt: *u8, ...) -> i32;
+
+const DEBUG = true;
+const FEATURE = 3;
+
+when OS == "linux" {
+    fn platform() -> *u8 { return "platform ok"; }
+} else when OS == "macos" {
+    fn platform() -> *u8 { return "platform ok"; }
+} else {
+    fn platform() -> *u8 { return "platform ok"; }
+}
+
+when FEATURE >= 2 {
+    const ANSWER = 42;
+} else {
+    const ANSWER = 0;
+}
+
+fn main() {
+    printf("%s\n", platform());
+    when ARCH == "x86_64" || ARCH == "aarch64" {
+        printf("arch ok\n");
+    } else {
+        printf("arch %s\n", ARCH);
+    }
+    when DEBUG {
+        printf("debug build\n");
+    } else {
+        // Not type checked: the inactive branch may use anything.
+        this_function_does_not_exist(undefined_variable);
+    }
+    when OPT_LEVEL >= 0 {
+        printf("level ok\n");
+    }
+    printf("answer %d\n", ANSWER);
+}

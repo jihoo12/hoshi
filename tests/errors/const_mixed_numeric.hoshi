@@ -1,0 +1,3 @@
+// error: invalid operands to '+': integer constant and float constant
+const X = 1 + 2.5;
+fn main() { let x = X; }

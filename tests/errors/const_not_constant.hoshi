@@ -1,0 +1,2 @@
+// error: 'x' is a variable, not a compile-time constant
+fn main() { let x = 1; const Y = x + 1; }

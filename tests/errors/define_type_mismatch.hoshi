@@ -1,0 +1,4 @@
+// flags: -DVERBOSE=3
+// error: -D VERBOSE=3 does not match the type of 'VERBOSE' (bool)
+const VERBOSE = false;
+fn main() {}

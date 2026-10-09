@@ -1,0 +1,45 @@
+// expect: 4096 4096 8192
+// expect: 255 -1 3.141593
+// expect: 16 buf=16
+// expect: hoshi 1
+// expect: local 12
+// expect: big 10000000000
+// expect: scale 1.500000
+extern fn printf(fmt: *u8, ...) -> i32;
+
+const PAGE = 4 * 1024;
+const PAGES: u64 = PAGE * 2 / PAGE;
+const MASK: u8 = 0xff;
+const NEG = -1;
+const PI = 3.14159265;
+const BUF_LEN = 1 << 4;
+const NAME = "hoshi";
+const ENABLED = PAGE > 1000 && !false;
+const BIG = 10_000_000_000;
+
+// Constants can be used before their declaration.
+const DOUBLE_PAGE = PAGE * TWO;
+const TWO = 2;
+
+fn main() {
+    let a: u64 = PAGE;      // untyped constants adapt to context
+    let b: i32 = PAGE;
+    printf("%llu %d %d\n", a, b, DOUBLE_PAGE);
+    let f: f32 = PI;
+    printf("%u %d %f\n", MASK, NEG, f);
+
+    var buf: [BUF_LEN]u8;
+    var copy: [BUF_LEN * PAGES / 2]u8;
+    printf("%d buf=%llu\n", BUF_LEN, sizeof([BUF_LEN]u8));
+    printf("%s %d\n", NAME, ENABLED);
+
+    const LOCAL = BUF_LEN - 4;
+    printf("local %d\n", LOCAL);
+    printf("big %lld\n", BIG);
+    print_scale();
+}
+
+// A typed float constant lets untyped integers join it, as at run time.
+const SCALE: f64 = 2.0;
+const HALF_SCALE = SCALE / 2 + 0.5;
+fn print_scale() { printf("scale %f\n", HALF_SCALE); }

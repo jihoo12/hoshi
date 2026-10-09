@@ -1,0 +1,3 @@
+// error: constant 'BIG' (300) does not fit in u8
+const BIG = 300;
+fn main() { let x: u8 = BIG; }
