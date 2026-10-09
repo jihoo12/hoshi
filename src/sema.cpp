@@ -80,12 +80,16 @@ public:
       if (!f->isGeneric() && f->body)
         checkFuncBody(*f);
 
-    // Instantiating one generic body may request more instances.
+    // Instantiating one generic body may request more instances. Each body is
+    // checked at the depth of the chain that requested it, so a generic that
+    // keeps instantiating itself with new types (f[T] -> f[*T]) hits the limit.
     while (!pendingBodies.empty()) {
       FuncDecl *f = pendingBodies.back();
       pendingBodies.pop_back();
+      instantiationDepth = instanceDepth[f];
       withInstanceNote(*f, [&] { checkFuncBody(*f); });
     }
+    instantiationDepth = 0;
 
     for (auto &s : m.structs)
       if (!s->isGeneric())
@@ -120,6 +124,7 @@ private:
   std::map<std::pair<FuncDecl *, std::vector<Type *>>, FuncDecl *> funcCache;
   std::vector<FuncDecl *> pendingBodies;
   int instantiationDepth = 0;
+  std::map<FuncDecl *, int> instanceDepth; // length of the chain that requested it
 
   // Run `fn` as if at the top level: no local scopes, and the given generic
   // bindings. Used for global constants and generic instantiation, which must
@@ -401,6 +406,7 @@ private:
     ++instantiationDepth;
     withInstanceNote(*raw, [&] { inGlobalContext(&raw->typeEnv, [&] { declareFunc(*raw); }); });
     --instantiationDepth;
+    instanceDepth[raw] = instantiationDepth + 1;
     pendingBodies.push_back(raw);
     return raw;
   }
@@ -662,10 +668,20 @@ private:
                    (t && t->isFloat());
     if (t && t->isFloat() != isFloat)
       return invalid(); // e.g. i32 constant with a float literal
+    if (l.kind != r.kind) {
+      // As at run time, an integer only becomes a float by adopting the type
+      // of a typed float operand: `F + 1` with F: f64 is fine, `1 + 2.5` is not.
+      const ConstValue &intSide = l.kind == ConstValue::Int ? l : r;
+      const ConstValue &floatSide = l.kind == ConstValue::Int ? r : l;
+      if (intSide.type || !floatSide.type)
+        return invalid();
+    }
 
     if (isFloat) {
       double x = l.kind == ConstValue::Float ? l.f : double(l.i);
       double y = r.kind == ConstValue::Float ? r.f : double(r.i);
+      if ((b.op == BinaryOp::Div || b.op == BinaryOp::Rem) && y == 0)
+        error(b.loc, "division by zero in a constant expression");
       switch (b.op) {
       case BinaryOp::Add: return ConstValue::ofFloat(x + y, t);
       case BinaryOp::Sub: return ConstValue::ofFloat(x - y, t);

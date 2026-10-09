@@ -4,6 +4,7 @@
 // expect: hoshi 1
 // expect: local 12
 // expect: big 10000000000
+// expect: scale 1.500000
 extern fn printf(fmt: *u8, ...) -> i32;
 
 const PAGE = 4 * 1024;
@@ -35,4 +36,10 @@ fn main() {
     const LOCAL = BUF_LEN - 4;
     printf("local %d\n", LOCAL);
     printf("big %lld\n", BIG);
+    print_scale();
 }
+
+// A typed float constant lets untyped integers join it, as at run time.
+const SCALE: f64 = 2.0;
+const HALF_SCALE = SCALE / 2 + 0.5;
+fn print_scale() { printf("scale %f\n", HALF_SCALE); }
