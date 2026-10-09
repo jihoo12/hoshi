@@ -1,0 +1,2 @@
+// error: condition must be bool, found i32
+fn main() { if 1 { } }

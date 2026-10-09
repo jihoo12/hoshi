@@ -1,0 +1,2 @@
+// error: integer literal 300 does not fit in u8
+fn main() { let x: u8 = 300; }

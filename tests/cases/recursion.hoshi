@@ -1,0 +1,33 @@
+// expect: 3628800
+// expect: 55
+// exit: 7
+extern fn printf(fmt: *u8, ...) -> i32;
+
+fn fact(n: u64) -> u64 {
+    if n == 0 { return 1; }
+    return n * fact(n - 1);
+}
+
+fn is_even(n: i32) -> bool {
+    if n == 0 { return true; }
+    return is_odd(n - 1);
+}
+
+fn is_odd(n: i32) -> bool {
+    if n == 0 { return false; }
+    return is_even(n - 1);
+}
+
+fn fib(n: i32) -> i32 {
+    if n < 2 { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+fn main() -> i32 {
+    printf("%llu\n", fact(10));
+    printf("%d\n", fib(10));
+    if is_even(10) && is_odd(7) {
+        return 7;
+    }
+    return 1;
+}

@@ -1,0 +1,2 @@
+// error: cannot cast f64 to *u8
+fn main() { let p = 1.0 as *u8; }

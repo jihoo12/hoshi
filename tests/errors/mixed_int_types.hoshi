@@ -1,0 +1,2 @@
+// error: invalid operands to '+': i32 and i64
+fn main() { let a: i32 = 1; let b: i64 = 2; let c = a + b; }

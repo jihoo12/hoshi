@@ -1,0 +1,32 @@
+// expect: body
+// expect: second
+// expect: first
+// expect: loop 0
+// expect: end of iteration 0
+// expect: loop 1
+// expect: end of iteration 1
+// expect: early
+// expect: cleanup early
+// expect: result 7
+extern fn printf(fmt: *u8, ...) -> i32;
+
+fn early() -> i32 {
+    var x = 7;
+    defer printf("cleanup early\n");
+    printf("early\n");
+    return x;
+}
+
+fn main() {
+    {
+        defer printf("first\n");
+        defer { printf("second\n"); }
+        printf("body\n");
+    }
+    for i in 0..5 {
+        defer printf("end of iteration %d\n", i);
+        printf("loop %d\n", i);
+        if i == 1 { break; }
+    }
+    printf("result %d\n", early());
+}

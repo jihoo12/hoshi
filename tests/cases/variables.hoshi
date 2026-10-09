@@ -1,0 +1,16 @@
+// expect: 10 11 shadow 3
+// expect: 0 1
+extern fn printf(fmt: *u8, ...) -> i32;
+
+fn main() {
+    var n = 10;
+    let first = n;
+    n += 1;
+    {
+        let n = 3;
+        printf("%d %d shadow %d\n", first, n + 8 - 3 + 1 - 6 + 8, n);
+    }
+    var z: i64;
+    var p: *i32;
+    printf("%lld %d\n", z, p == null);
+}

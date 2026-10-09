@@ -1,0 +1,18 @@
+// expect: 3 -1 255 65
+// expect: 2.000000 1
+// expect: A
+extern fn printf(fmt: *u8, ...) -> i32;
+extern fn putchar(c: i32) -> i32;
+
+fn main() {
+    let f = 3.9;
+    let big: i64 = -1;
+    let small = big as u8;
+    let ch = 'A';
+    printf("%d %d %d %d\n", f as i32, big as i32, small, ch);
+    let i = 2;
+    let t = true;
+    printf("%f %d\n", i as f64, t as i32);
+    putchar(ch as i32);
+    putchar('\n' as i32);
+}

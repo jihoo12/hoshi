@@ -1,0 +1,2 @@
+// error: cannot return from inside a defer
+fn main() { defer { return; } }

@@ -1,0 +1,12 @@
+// expect: hello world 11
+// expect: tab	x "quoted" \
+// expect: hex A
+extern fn printf(fmt: *u8, ...) -> i32;
+extern fn strlen(s: *u8) -> u64;
+
+fn main() {
+    let s = "hello world";
+    printf("%s %d\n", s, strlen(s) as i32);
+    printf("tab\tx \"quoted\" \\\n");
+    printf("hex %c\n", '\x41');
+}
